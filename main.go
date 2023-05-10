@@ -31,24 +31,24 @@ func main() {
 
 	begin := bot.NewInitCallback("Здравствуте, на связи магазин компьютерных программ)")
 
-	item1 := bot.NewCallback("Программы", "Выберите тип программы", "positive")
-	item2 := bot.NewCallback("Игры", "Выберете тип игры", "positive")
-	item3 := bot.NewCallback("Подписки", "Выберите тип подписки?", "positive")
-	item4 := bot.NewCallback("Контакты", "Как вы предпочитаете связаться с нами?", "positive")
+	item1 := bot.NewCallback("Программы", "Выберите тип программы")
+	item2 := bot.NewCallback("Игры", "Выберете тип игры")
+	item3 := bot.NewCallback("Подписки", "Выберите тип подписки?")
+	item4 := bot.NewCallback("Контакты", "Как вы предпочитаете связаться с нами?")
 
 	begin.AddNext(item1, item2, item3, item4)
 
-	item11 := bot.NewCallbackWithMessage("Платные", pages.Content("pay_progs"), "secondary")
-	item12 := bot.NewCallbackWithMessage("Бесплатные", pages.Content("unpay_progs"), "positive")
+	item11 := bot.NewCallbackWithMessage("Платные", pages.Content("pay_progs"))
+	item12 := bot.NewCallbackWithMessage("Бесплатные", pages.Content("unpay_progs"))
 
-	item21 := bot.NewCallbackWithMessage("Одиночные", pages.Content("only_games"), "secondary")
-	item22 := bot.NewCallbackWithMessage("Сетевые", pages.Content("multy_games"), "positive")
+	item21 := bot.NewCallbackWithMessage("Одиночные", pages.Content("only_games"))
+	item22 := bot.NewCallbackWithMessage("Сетевые", pages.Content("multy_games"))
 
-	item31 := bot.NewCallbackWithMessage("Фильмы", pages.Content("subs_movie"), "secondary")
-	item32 := bot.NewCallbackWithMessage("Сериалы", pages.Content("subs_series"), "positive")
+	item31 := bot.NewCallbackWithMessage("Фильмы", pages.Content("subs_movie"))
+	item32 := bot.NewCallbackWithMessage("Сериалы", pages.Content("subs_series"))
 
-	item41 := bot.NewCallbackWithMessage("Связь", pages.Content("conn_msg"), "secondary")
-	item42 := bot.NewCallbackWithMessage("Оставить отзыв", pages.Content("conn_comm"), "positive")
+	item41 := bot.NewCallbackWithMessage("Связь", pages.Content("conn_msg"))
+	item42 := bot.NewCallbackWithMessage("Оставить отзыв", pages.Content("conn_comm"))
 
 	item1.AddNext(item11, item12)
 	item2.AddNext(item21, item22)

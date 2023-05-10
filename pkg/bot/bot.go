@@ -156,9 +156,7 @@ func (bot *Bot) handleUpds(upds types.WaitUpdatesResponse) {
 	}
 }
 
-func (bot *Bot) sendCallback(sender int, event string, text string) {
-	fmt.Println("event: ", sender, event, text)
-}
+func (bot *Bot) sendCallback(sender int, event string, text string) {}
 
 func (bot *Bot) run() {
 	for {
@@ -169,12 +167,7 @@ func (bot *Bot) run() {
 			bot.debugMessage(fmt.Sprintf("receive mes %d, %s, %d, %t", u.Sender, u.Text, u.Date, u.Keyboard))
 			if u.Keyboard {
 				if !bot.execHandler(u.Text, u.Sender) {
-					err := bot.Send(u.Sender, types.MessageSend{
-						Text: "undefined obj name",
-					})
-					if err != nil {
-						bot.debugMessage("cant send message")
-					}
+					bot.debugMessage("cant send message")
 				} else {
 					bot.updateBackUser(u.Sender, u.Text)
 				}
@@ -257,15 +250,13 @@ type Callback struct {
 	prev    *Callback
 	next    []*Callback
 	message string
-	opt     string
 }
 
-func NewCallback(name, text, opt string) *Callback {
+func NewCallback(name, text string) *Callback {
 	return &Callback{
 		name:    name,
 		next:    make([]*Callback, 0),
 		message: text,
-		opt:     opt,
 	}
 }
 
@@ -277,11 +268,10 @@ func NewInitCallback(text string) *Callback {
 	}
 }
 
-func NewCallbackWithMessage(name, mes, opt string) *Callback {
+func NewCallbackWithMessage(name, mes string) *Callback {
 	return &Callback{
 		name:    name,
 		message: mes,
-		opt:     opt,
 	}
 }
 
@@ -299,16 +289,12 @@ func (bot *Bot) Build(c *Callback) {
 	buttons := make([]types.Button, 0, len(c.next))
 	if c.next != nil {
 		for _, call := range c.next {
-			color := call.opt
-			if color == "" {
-				color = "primary"
-			}
-			b := types.NewButton(call.name, nil, false, color)
+			b := types.NewButton(call.name, nil)
 			buttons = append(buttons, b)
 		}
 	}
 	if c.prev != nil {
-		back := types.NewButton(backMessage, nil, false, "")
+		back := types.NewButton(backMessage, nil)
 		buttons = append(buttons, back)
 	}
 	c.handler = func(userID int) error {

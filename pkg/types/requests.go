@@ -121,12 +121,9 @@ type Reply struct {
 	Keyboard *Keyboard
 }
 
-func NewButton(label string, payload interface{}, callback bool, color string) Button {
+func NewButton(label string, payload interface{}) Button {
 	button := Button{}
 	button.Action.Type = "text"
-	if callback {
-		button.Action.Type = "callback"
-	}
 	button.Action.Label = label
 	button.Action.Payload = "{}"
 	if payload != nil {
