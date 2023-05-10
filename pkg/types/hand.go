@@ -2,6 +2,7 @@ package types
 
 type UpdMessage struct {
 	Sender   int
+	Message  string
 	Text     string
 	Date     int
 	Keyboard bool

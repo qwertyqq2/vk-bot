@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	defaultUpdTimerInterval = 2 * time.Second
+	defaultUpdTimerInterval = 1 * time.Second
 
 	initMessage = "Начать"
 	backMessage = "Назад"
@@ -23,9 +23,10 @@ type Bot struct {
 	ctx    context.Context
 	cancel func()
 
-	callbacks map[string]*Callback
-	backUsers map[int]*backEvent
-	hlk       sync.RWMutex
+	callbacks     map[string]*Callback
+	backUsers     map[int]*backEvent
+	waitCallbacks map[string]string
+	hlk           sync.RWMutex
 
 	upd          chan types.UpdMessage
 	updTimer     time.Timer
@@ -44,14 +45,26 @@ func NewBot(opts ...Option) *Bot {
 		o(&conf)
 	}
 	return &Bot{
-		Config:       conf,
-		callbacks:    make(map[string]*Callback),
-		backUsers:    make(map[int]*backEvent),
-		upd:          make(chan types.UpdMessage, 100),
-		updTimer:     *time.NewTimer(defaultUpdTimerInterval),
-		updInteraval: defaultUpdTimerInterval,
-		debug:        conf.debug,
+		Config:        conf,
+		callbacks:     make(map[string]*Callback),
+		backUsers:     make(map[int]*backEvent),
+		waitCallbacks: make(map[string]string),
+		upd:           make(chan types.UpdMessage, 100),
+		updTimer:      *time.NewTimer(defaultUpdTimerInterval),
+		updInteraval:  defaultUpdTimerInterval,
+		debug:         conf.debug,
 	}
+}
+
+func (bot *Bot) addWaitCallback(name string, text string) {
+	bot.waitCallbacks[name] = text
+}
+
+func (bot *Bot) isWaitCallback(name string) (string, bool) {
+	if text, ok := bot.waitCallbacks[name]; ok {
+		return text, true
+	}
+	return "", false
 }
 
 func (bot *Bot) Init() error {
@@ -91,9 +104,12 @@ func (bot *Bot) Init() error {
 	return nil
 }
 
+func (bot *Bot) Shutdown() {
+	bot.cancel()
+}
+
 func (bot *Bot) checkUpdates() {
 	tiker := time.NewTicker(defaultUpdTimerInterval)
-
 	for {
 		select {
 		case <-bot.ctx.Done():
@@ -118,15 +134,27 @@ func (bot *Bot) handleUpds(upds types.WaitUpdatesResponse) {
 		switch upd.Type {
 		case "message_new":
 			sender := upd.Object.Message.FromID
-			text := upd.Object.Message.Text
+			mes := upd.Object.Message.Text
 			time := upd.Object.Message.Date
-			if sender == 0 || time == 0 || text == "" {
+			if sender == 0 || time == 0 || mes == "" {
 				bot.debugMessage(fmt.Sprintf("incorrect message"))
 				continue
 			}
+			var text string
+			bot.hlk.RLock()
+			if e, ok := bot.backUsers[sender]; ok {
+				if textWait, ok := bot.isWaitCallback(e.cur); ok {
+					if e.prev != e.cur {
+						mes = e.prev
+						text = textWait
+					}
+				}
+			}
+			bot.hlk.RUnlock()
+
 			if upd.Object.Message.Action.Type == "chat_invite_user" {
 				bot.debugMessage("invite user")
-				text = initMessage
+				mes = initMessage
 			}
 
 			select {
@@ -141,17 +169,16 @@ func (bot *Bot) handleUpds(upds types.WaitUpdatesResponse) {
 					return
 				case bot.upd <- types.UpdMessage{
 					Sender:   sender,
-					Text:     text,
+					Message:  mes,
 					Date:     time,
+					Text:     text,
 					Keyboard: keyboard,
 				}:
 				}
 			}(upd.Object.ClientInfo.Keyboard)
 
-		case "message_event":
-
 		default:
-			bot.debugMessage("undefined message type")
+
 		}
 	}
 }
@@ -166,10 +193,8 @@ func (bot *Bot) run() {
 		case u := <-bot.upd:
 			bot.debugMessage(fmt.Sprintf("receive mes %d, %s, %d, %t", u.Sender, u.Text, u.Date, u.Keyboard))
 			if u.Keyboard {
-				if !bot.execHandler(u.Text, u.Sender) {
+				if !bot.execHandler(u.Message, u.Sender, u.Text) {
 					bot.debugMessage("cant send message")
-				} else {
-					bot.updateBackUser(u.Sender, u.Text)
 				}
 			}
 		}
@@ -188,43 +213,52 @@ func (bot *Bot) Send(userID int, mes types.MessageSend) error {
 	return err
 }
 
-func (bot *Bot) execHandler(name string, userID int) bool {
-	bot.hlk.RLock()
+func (bot *Bot) execHandler(name string, userID int, text string) bool {
+	bot.hlk.Lock()
 	if name == backMessage {
 		e, ok := bot.backUsers[userID]
 		if !ok {
 			bot.updateBackUser(userID, initMessage)
 		}
-		prevHand, _ := bot.callbacks[e.prev]
-		bot.hlk.RUnlock()
-
+		prevHand, ok := bot.callbacks[e.prev]
+		if !ok {
+			fmt.Println(prevHand)
+		}
 		if err := prevHand.handler(userID); err != nil {
 			bot.debugMessage("err handler back " + err.Error())
 			return false
 		}
 		bot.updateBackUser(userID, e.prev)
+		bot.hlk.Unlock()
 		return true
 	} else {
 		cb, ok := bot.callbacks[name]
 		if !ok {
-			bot.debugMessage("err handler callback ")
 			return false
 		}
-		bot.hlk.RUnlock()
+
+		if text != "" {
+			err := bot.Send(userID, types.MessageSend{
+				Text: text,
+			})
+			if err != nil {
+				bot.debugMessage("err send text callback")
+				return false
+			}
+		}
 
 		if err := cb.handler(userID); err != nil {
 			bot.debugMessage("err handler " + err.Error())
 			return false
 		}
 		bot.updateBackUser(userID, name)
+		bot.hlk.Unlock()
 
 		return true
 	}
 }
 
 func (bot *Bot) updateBackUser(userID int, name string) {
-	bot.hlk.Lock()
-	defer bot.hlk.Unlock()
 	e, ok := bot.backUsers[userID]
 	if !ok {
 		e = &backEvent{prev: name, cur: name}
@@ -245,11 +279,13 @@ func (bot *Bot) updateBackUser(userID int, name string) {
 }
 
 type Callback struct {
-	handler func(int) error
-	name    string
-	prev    *Callback
-	next    []*Callback
-	message string
+	handler  func(int) error
+	name     string
+	prev     *Callback
+	next     []*Callback
+	message  string
+	wait     bool
+	textBack string
 }
 
 func NewCallback(name, text string) *Callback {
@@ -275,6 +311,15 @@ func NewCallbackWithMessage(name, mes string) *Callback {
 	}
 }
 
+func NewWaitCallbackWithMessage(name, mes, text string) *Callback {
+	return &Callback{
+		name:     name,
+		message:  mes,
+		wait:     true,
+		textBack: text,
+	}
+}
+
 func (c *Callback) AddNext(others ...*Callback) {
 	for _, other := range others {
 		if other.prev != nil {
@@ -297,6 +342,9 @@ func (bot *Bot) Build(c *Callback) {
 		back := types.NewButton(backMessage, nil)
 		buttons = append(buttons, back)
 	}
+	if c.wait {
+		bot.addWaitCallback(c.name, c.textBack)
+	}
 	c.handler = func(userID int) error {
 		kbd := types.NewKeyboard(buttons...).Bytes()
 		var mes string
@@ -317,6 +365,6 @@ func (bot *Bot) Build(c *Callback) {
 
 func (bot *Bot) debugMessage(str string) {
 	if bot.debug == true {
-		fmt.Println(str)
+		fmt.Println("DEBUG: " + str)
 	}
 }
