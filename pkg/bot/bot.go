@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/qwertyqq2/vk-chat-testtask/pkg/session"
 	"github.com/qwertyqq2/vk-chat-testtask/pkg/types"
 	"github.com/qwertyqq2/vk-chat-testtask/pkg/utils"
 )
@@ -15,28 +14,14 @@ const (
 	defaultUpdTimerInterval = 2 * time.Second
 )
 
-type callback struct {
-	handler func(int) error
-	name    string
-	prev    string
-}
-
-func newcallback(name, prev string, handler func(int) error) callback {
-	return callback{handler: handler, name: name, prev: prev}
-}
-
 type Bot struct {
 	Config
 
 	ctx    context.Context
 	cancel func()
 
-	sessions map[string]*session.Session
-	slk      sync.RWMutex
-
-	//layers       map[string]*Layer
-	//handleLayers map[string]func(int) error
-	callbacks map[string]callback
+	callbacks map[string]*Callback
+	backUsers map[int]func(userID int) error
 	hlk       sync.RWMutex
 
 	upd          chan types.UpdMessage
@@ -53,8 +38,8 @@ func NewBot(opts ...Option) *Bot {
 	}
 	return &Bot{
 		Config:       conf,
-		sessions:     make(map[string]*session.Session),
-		callbacks:    make(map[string]callback),
+		callbacks:    make(map[string]*Callback),
+		backUsers:    make(map[int]func(userID int) error),
 		upd:          make(chan types.UpdMessage, 100),
 		updTimer:     *time.NewTimer(defaultUpdTimerInterval),
 		updInteraval: defaultUpdTimerInterval,
@@ -196,47 +181,14 @@ func (bot *Bot) Send(userID int, mes types.MessageSend) error {
 	return err
 }
 
-func (bot *Bot) Callback(name, prev string, handler func(int) error) types.Button {
-	button := types.NewButton(name, nil)
-
-	bot.hlk.Lock()
-	defer bot.hlk.Unlock()
-
-	cb := newcallback(name, prev, handler)
-	bot.callbacks[cb.name] = cb
-	return button
-}
-
-func (bot *Bot) NewKeyboard(prev string, buttons ...types.Button) *types.Keyboard {
-	kbd := types.NewKeyboard(buttons...)
-	if prev != "" {
-		back := bot.Callback("back", prev, func(userID int) error {
-			if prev == "" {
-				return nil
-			}
-			cb, ok := bot.callbacks[prev]
-			if !ok {
-				return fmt.Errorf("undefined prev callback")
-			}
-			if cb.prev == "" {
-				return nil
-			}
-			next, ok := bot.callbacks[cb.prev]
-			if !ok {
-				return fmt.Errorf("undefined parent callback")
-			}
-			if err := next.handler(userID); err != nil {
-				return err
-			}
-			return nil
-		})
-		kbd.Append(back)
-	}
-	return kbd
-}
-
 func (bot *Bot) execHandler(name string, userID int) bool {
 	bot.hlk.RLock()
+	if name == "back" {
+		hand := bot.backUsers[userID]
+		if err := hand(userID); err != nil {
+			return false
+		}
+	}
 	cb, ok := bot.callbacks[name]
 	if !ok {
 		return false
@@ -246,7 +198,85 @@ func (bot *Bot) execHandler(name string, userID int) bool {
 	if err := cb.handler(userID); err != nil {
 		bot.debugMessage("err handler " + err.Error())
 	}
+
+	bot.hlk.Lock()
+	defer bot.hlk.Unlock()
+
+	bot.backUsers[userID] = cb.handler
+
 	return true
+}
+
+type Callback struct {
+	handler func(int) error
+	name    string
+	prev    *Callback
+	next    []*Callback
+}
+
+func NewCallback(name string) *Callback {
+	return &Callback{
+		name: name,
+		next: make([]*Callback, 0),
+	}
+}
+
+func NewCallbackWithHander(name string, handler func(int) error) *Callback {
+	return &Callback{
+		name:    name,
+		handler: handler,
+	}
+}
+
+func (c *Callback) AddNext(other *Callback) {
+	if other.prev != nil {
+		return
+	}
+	c.next = append(c.next, other)
+	other.prev = c
+}
+
+func (bot *Bot) Build(c *Callback) {
+	buttons := make([]types.Button, 0, len(c.next))
+	if c.prev != nil {
+		prev := c.prev
+		if prev.prev != nil {
+			back := types.NewButton("back", nil)
+			buttons = append(buttons, back)
+		}
+	}
+	if c.handler == nil {
+		if len(c.next) == 0 {
+			return
+		}
+		for _, call := range c.next {
+			b := types.NewButton(call.name, nil)
+			buttons = append(buttons, b)
+		}
+		c.handler = func(userID int) error {
+			kbd := types.NewKeyboard(buttons...).Bytes()
+			return bot.Send(userID, types.MessageSend{
+				Text:     c.name,
+				Keyboard: string(kbd),
+			})
+		}
+	} else {
+		kbd := types.NewKeyboard(buttons...).Bytes()
+		hand := c.handler
+		c.handler = func(userID int) error {
+			if err := hand(userID); err != nil {
+				return err
+			}
+			return bot.Send(userID, types.MessageSend{
+				Text:     ")",
+				Keyboard: string(kbd),
+			})
+		}
+	}
+	bot.callbacks[c.name] = c
+	for _, call := range c.next {
+		bot.Build(call)
+	}
 }
 
 func (bot *Bot) debugMessage(str string) {
