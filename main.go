@@ -4,10 +4,17 @@ import (
 	"log"
 
 	"github.com/qwertyqq2/vk-chat-testtask/configs"
+	"github.com/qwertyqq2/vk-chat-testtask/data"
 	"github.com/qwertyqq2/vk-chat-testtask/pkg/bot"
 )
 
+var pages *data.Data
+
 func main() {
+	if err := loadData(); err != nil {
+		log.Fatal(err)
+	}
+
 	conf, err := configs.LoadConfig("./configs/envs")
 	if err != nil {
 		log.Fatal(err)
@@ -22,26 +29,26 @@ func main() {
 		log.Fatal(err)
 	}
 
-	begin := bot.NewCallback("begin")
+	begin := bot.NewInitCallback("Здравствуте, на связи магазин компьютерных программ)")
 
-	item1 := bot.NewCallback("Программы")
-	item2 := bot.NewCallback("Игры")
-	item3 := bot.NewCallback("Подписки")
-	item4 := bot.NewCallback("Контакты")
+	item1 := bot.NewCallback("Программы", "Выберите тип программы", "positive")
+	item2 := bot.NewCallback("Игры", "Выберете тип игры", "positive")
+	item3 := bot.NewCallback("Подписки", "Выберите тип подписки?", "positive")
+	item4 := bot.NewCallback("Контакты", "Как вы предпочитаете связаться с нами?", "positive")
 
 	begin.AddNext(item1, item2, item3, item4)
 
-	item11 := bot.NewCallbackWithMessage("Платные", "here1")
-	item12 := bot.NewCallbackWithMessage("Бесплатные", "here1")
+	item11 := bot.NewCallbackWithMessage("Платные", pages.Content("pay_progs"), "secondary")
+	item12 := bot.NewCallbackWithMessage("Бесплатные", pages.Content("unpay_progs"), "positive")
 
-	item21 := bot.NewCallbackWithMessage("Одиночные", "here2")
-	item22 := bot.NewCallbackWithMessage("Сетевые", "here2")
+	item21 := bot.NewCallbackWithMessage("Одиночные", pages.Content("only_games"), "secondary")
+	item22 := bot.NewCallbackWithMessage("Сетевые", pages.Content("multy_games"), "positive")
 
-	item31 := bot.NewCallbackWithMessage("Фильмы", "here3")
-	item32 := bot.NewCallbackWithMessage("Сериалы", "here3")
+	item31 := bot.NewCallbackWithMessage("Фильмы", pages.Content("subs_movie"), "secondary")
+	item32 := bot.NewCallbackWithMessage("Сериалы", pages.Content("subs_series"), "positive")
 
-	item41 := bot.NewCallbackWithMessage("Связь", "here4")
-	item42 := bot.NewCallbackWithMessage("Оставить отзыв", "here4")
+	item41 := bot.NewCallbackWithMessage("Связь", pages.Content("conn_msg"), "secondary")
+	item42 := bot.NewCallbackWithMessage("Оставить отзыв", pages.Content("conn_comm"), "positive")
 
 	item1.AddNext(item11, item12)
 	item2.AddNext(item21, item22)
@@ -51,4 +58,14 @@ func main() {
 	mybot.Build(begin)
 
 	select {}
+}
+
+func loadData() error {
+	d, err := data.NewData("conn_comm", "conn_msg", "multy_games",
+		"only_games", "pay_progs", "subs_movie", "subs_series", "unpay_progs")
+	if err != nil {
+		return err
+	}
+	pages = d
+	return nil
 }

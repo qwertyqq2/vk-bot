@@ -50,6 +50,11 @@ type Message struct {
 	PeerID int    `json:"peer_id"`
 	FromID int    `json:"from_id"`
 	Text   string `json:"text"`
+	Action Action `json:"action"`
+}
+
+type Action struct {
+	Type string `json:"type"`
 }
 
 type ClientInfo struct {
@@ -101,6 +106,7 @@ type Button struct {
 }
 
 type Keyboard struct {
+	Inline  bool       `json:"inline"`
 	OneTime bool       `json:"one_time"`
 	Buttons [][]Button `json:"buttons"`
 }
@@ -115,9 +121,12 @@ type Reply struct {
 	Keyboard *Keyboard
 }
 
-func NewButton(label string, payload interface{}) Button {
+func NewButton(label string, payload interface{}, callback bool, color string) Button {
 	button := Button{}
 	button.Action.Type = "text"
+	if callback {
+		button.Action.Type = "callback"
+	}
 	button.Action.Label = label
 	button.Action.Payload = "{}"
 	if payload != nil {

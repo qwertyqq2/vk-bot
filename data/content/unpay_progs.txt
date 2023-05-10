@@ -1,0 +1,11 @@
+Список бесплатных программ
+
+Visual Studio Code - бесплатно
+
+Docker - бесплатно
+
+Torrent Client - бесплатно
+
+Mozila Firefox - бесплатно
+
+Chrome - бесплатно
